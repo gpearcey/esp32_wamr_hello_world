@@ -28,7 +28,7 @@ unsafe fn _loop() {
 }
 
 #[no_mangle]
-fn _start() {
+fn main() {
     unsafe{
         _setup();
         loop {

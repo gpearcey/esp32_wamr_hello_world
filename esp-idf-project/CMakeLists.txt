@@ -42,5 +42,7 @@ endif()
 
 #ESP project details
 
-include(${IDF_PATH}/tools/cmake/project.cmake)
-project(wasm3_blink)
+set (COMPONENTS ${IDF_TARGET} main freertos esptool_py wamr)
+list(APPEND EXTRA_COMPONENT_DIRS "$ENV{WAMR_PATH}/build-scripts/esp-idf")
+
+project(wamr-blink)

@@ -2,25 +2,41 @@
 #include <time.h>
 #include <unistd.h>
 #include "esp_system.h"
-#include "wasm3.h"
+
 #include "driver/gpio.h"
-#include "extra/fib32.wasm.h"
+
 #include "esp_log.h"
-#include <m3_env.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "bh_platform.h"
+#include "wasm_export.h"
+#include "bh_read_file.h"
+#include "bh_getopt.h"
 
+static const char* TAG = "main.cpp";
+
+void blink_led(int32_t blink_gpio, uint32_t led_state);
+void configure_led(int32_t blink_gpio);
+void delay(int32_t ms);
+hi
 /**
  * WebAssembly app 
 */
 #include "wasm_project.wasm.h"
+//
+//#define WASM_STACK_SLOTS (512)
+//#define WASM_MEMORY_LIMIT (2*1024)
+//#define NATIVE_STACK_SIZE (4*1024)
 
-#define WASM_STACK_SLOTS (512)
-#define WASM_MEMORY_LIMIT (2*1024)
-#define NATIVE_STACK_SIZE (4*1024)
+static void * app_instance_main(wasm_module_inst_t module_inst)
+{
+    const char *exception;
 
-
-static const char* TAG = "main.cpp";
+    wasm_application_execute_main(module_inst, 0, NULL);
+    if ((exception = wasm_runtime_get_exception(module_inst)))
+        printf("%s\n", exception);
+    return NULL;
+}
 
 
 /**
@@ -142,16 +158,16 @@ void runWasmFile(const char *path);
 /*************************************************************************************************************
  * ESP32 LED functions
 */
-void blink_led(int32_t blink_gpio, uint32_t led_state)
+void blink_led(wasm_exec_env_t exec_env, int32_t blink_gpio, uint32_t led_state)
 {
     gpio_num_t blink_gpio_val;
     getGPIO(blink_gpio, blink_gpio_val);
     /* Set the GPIO level according to the state (LOW or HIGH)*/
     gpio_set_level(blink_gpio_val, led_state);
     ESP_LOGI(TAG,"blink_led called with state %" PRIu32 "", led_state);
-};
+}
 
-void configure_led(int32_t blink_gpio)
+void configure_led(wasm_exec_env_t exec_env, int32_t blink_gpio)
 {
     gpio_num_t blink_gpio_val;
     getGPIO(blink_gpio, blink_gpio_val);
@@ -159,92 +175,154 @@ void configure_led(int32_t blink_gpio)
     gpio_reset_pin(blink_gpio_val);
     /* Set the GPIO as a push/pull output */
     gpio_set_direction(blink_gpio_val, GPIO_MODE_OUTPUT);
-};
-
-void delay(int32_t ms){
-    vTaskDelay(pdMS_TO_TICKS(ms)); // Perform the delay
-};
-
-/********************************************************************************************************************
- * API Bindings
-*/
-m3ApiRawFunction(m3_blink_led){
-    m3ApiGetArg(int32_t, blink_gpio);
-    m3ApiGetArg(uint8_t, led_state);
-    blink_led(blink_gpio,led_state);
-
-    m3ApiSuccess();
-};
-
-m3ApiRawFunction(m3_configure_led){
-    m3ApiGetArg(int32_t, blink_gpio);
-    configure_led(blink_gpio);
-    m3ApiSuccess();
-};
-
-m3ApiRawFunction(m3_delay){
-    m3ApiGetArg(int32_t, ms);
-    delay(ms);
-    m3ApiSuccess();
-};
-   
-
-/**
- * Linking led control functions
-*/
-M3Result  LinkESP32(IM3Runtime runtime)
-{
-    IM3Module module = runtime->modules;
-    const char* module_name = "env";
-
-    m3_LinkRawFunction (module, module_name, "blink_led",           "v(ii)",    &m3_blink_led);
-    m3_LinkRawFunction (module, module_name, "configure_led",       "v(i)",    &m3_configure_led);
-    m3_LinkRawFunction (module, module_name, "delay",               "v(i)",    &m3_delay);
-
-    return m3Err_none;
 }
+
+void delay(wasm_exec_env_t exec_env, int32_t ms){
+    vTaskDelay(pdMS_TO_TICKS(ms)); // Perform the delay
+}
+
 
 /**
  * wasm_task
  * Parses wasm module
 */
-void wasm_task(void *arg){
-    M3Result result = m3Err_none;
+int wasm_task(void *arg){
 
-    printf("Loading WebAssembly...\n");
-    IM3Environment env = m3_NewEnvironment ();
-    if (!env) ESP_LOGE(TAG,"m3_NewEnvironment failed");
+    (void)arg; /* unused */
+    /* setup variables for instantiating and running the wasm module */
+    uint8_t *wasm_file_buf = NULL;
+    unsigned wasm_file_buf_size = 0;
+    wasm_module_t wasm_module = NULL;
+    wasm_module_inst_t wasm_module_inst = NULL;
+    char error_buf[128];
+    void *ret;
+    RuntimeInitArgs init_args;
 
-    IM3Runtime runtime = m3_NewRuntime (env, WASM_STACK_SLOTS, NULL);
-    if (!runtime) ESP_LOGE(TAG,"m3_NewRuntime failed");
+    // Define an array of NativeSymbol for the APIs to be exported.
+    // Note: the array must be static defined since runtime
+    //            will keep it after registration
+    // For the function signature specifications, goto the link:
+    // https://github.com/bytecodealliance/wasm-micro-runtime/blob/main/doc/export_native_api.md
 
+    static NativeSymbol native_symbols[] = {
+        {
+            "blink_led", // the name of WASM function name
+            blinkLed,   // the native function pointer
+            "(ii)v",  // the function prototype signature, avoid to use i32
+            NULL        // attachment is NULL
+        },
+        {
+            "configure_led", // the name of WASM function name
+            configLed,   // the native function pointer
+            "(i)v",   // the function prototype signature, avoid to use i32
+            NULL       // attachment is NULL
+        },
+        { "delay", delay, "(i)v", NULL }
+    };
+/* configure memory allocation */
+    memset(&init_args, 0, sizeof(RuntimeInitArgs));
+#if WASM_ENABLE_GLOBAL_HEAP_POOL == 0
+    init_args.mem_alloc_type = Alloc_With_Allocator;
+    init_args.mem_alloc_option.allocator.malloc_func = (void *)os_malloc;
+    init_args.mem_alloc_option.allocator.realloc_func = (void *)os_realloc;
+    init_args.mem_alloc_option.allocator.free_func = (void *)os_free;
+#else
+#error The usage of a global heap pool is not implemented yet for esp-idf.
+#endif
 
-    runtime->memoryLimit = WASM_MEMORY_LIMIT;
+    ESP_LOGI(LOG_TAG, "Initialize WASM runtime");
+    /* initialize runtime environment */
+    if (!wasm_runtime_full_init(&init_args)) {
+        ESP_LOGE(LOG_TAG, "Init runtime failed.");
+        return NULL;
+    }
 
-    IM3Module module;
-    result = m3_ParseModule (env, &module, wasm_project_wasm, wasm_project_wasm_len);
-    if (result) ESP_LOGE(TAG,"m3_ParseModule: %s", result);
+#if WASM_ENABLE_INTERP != 0
+    ESP_LOGI(LOG_TAG, "Run wamr with interpreter");
 
-    result = m3_LoadModule (runtime, module);
-    if (result) ESP_LOGE(TAG,"LoadModule: %s", result);
+    wasm_file_buf = (uint8_t *)wasm_test_file_interp;
+    wasm_file_buf_size = sizeof(wasm_test_file_interp);
 
-    result = LinkESP32 (runtime);
-    if (result) ESP_LOGE(TAG,"LinkESP32: %s", result);
+    /* load WASM module */
+    if (!(wasm_module = wasm_runtime_load(wasm_file_buf, wasm_file_buf_size,
+                                          error_buf, sizeof(error_buf)))) {
+        ESP_LOGE(LOG_TAG, "Error in wasm_runtime_load: %s", error_buf);
+        goto fail1interp;
+    }
 
-    IM3Function f;
-    result = m3_FindFunction (&f, runtime, "_start");
-    if (result) ESP_LOGE(TAG,"m3_FindFunction: %s", result);
+    ESP_LOGI(LOG_TAG, "Instantiate WASM runtime");
+    if (!(wasm_module_inst =
+              wasm_runtime_instantiate(wasm_module, 32 * 1024, // stack size
+                                       32 * 1024,              // heap size
+                                       error_buf, sizeof(error_buf)))) {
+        ESP_LOGE(LOG_TAG, "Error while instantiating: %s", error_buf);
+        goto fail2interp;
+    }
 
-    result = m3_CallV(f);
+    ESP_LOGI(LOG_TAG, "run main() of the application");
+    ret = app_instance_main(wasm_module_inst);
+    assert(!ret);
 
-    if (result) ESP_LOGE(TAG,"m3_GetResults: %s", result);//should not arrive here
+    /* destroy the module instance */
+    ESP_LOGI(LOG_TAG, "Deinstantiate WASM runtime");
+    wasm_runtime_deinstantiate(wasm_module_inst);
+
+fail2interp:
+    /* unload the module */
+    ESP_LOGI(LOG_TAG, "Unload WASM module");
+    wasm_runtime_unload(wasm_module);
+
+fail1interp:
+#endif
+#if WASM_ENABLE_AOT != 0
+    ESP_LOGI(LOG_TAG, "Run wamr with AoT");
+
+    wasm_file_buf = (uint8_t *)wasm_test_file_aot;
+    wasm_file_buf_size = sizeof(wasm_test_file_aot);
+
+    /* load WASM module */
+    if (!(wasm_module = wasm_runtime_load(wasm_file_buf, wasm_file_buf_size,
+                                          error_buf, sizeof(error_buf)))) {
+        ESP_LOGE(LOG_TAG, "Error in wasm_runtime_load: %s", error_buf);
+        goto fail1aot;
+    }
+
+    ESP_LOGI(LOG_TAG, "Instantiate WASM runtime");
+    if (!(wasm_module_inst =
+              wasm_runtime_instantiate(wasm_module, 32 * 1024, // stack size
+                                       32 * 1024,              // heap size
+                                       error_buf, sizeof(error_buf)))) {
+        ESP_LOGE(LOG_TAG, "Error while instantiating: %s", error_buf);
+        goto fail2aot;
+    }
+
+    ESP_LOGI(LOG_TAG, "run main() of the application");
+    ret = app_instance_main(wasm_module_inst);
+    assert(!ret);
+
+    /* destroy the module instance */
+    ESP_LOGI(LOG_TAG, "Deinstantiate WASM runtime");
+    wasm_runtime_deinstantiate(wasm_module_inst);
+
+fail2aot:
+    /* unload the module */
+    ESP_LOGI(LOG_TAG, "Unload WASM module");
+    wasm_runtime_unload(wasm_module);
+fail1aot:
+#endif
+
+    /* destroy runtime environment */
+    ESP_LOGI(LOG_TAG, "Destroy WASM runtime");
+    wasm_runtime_destroy();
+
+    return NULL;
 }
 
 void runWasmFile(const char *path) {
 
     xTaskCreate(
         &wasm_task,           // Pointer to the task entry function.
-        "wasm3",              // A descriptive name for the task for debugging.
+        "wamr",               // A descriptive name for the task for debugging.
         NATIVE_STACK_SIZE,    // size of the task stack in bytes.
         NULL,                 // Optional pointer to pvParameters
         5,                    // priority at which the task should run
@@ -257,4 +335,5 @@ void runWasmFile(const char *path) {
 extern "C" void app_main(void)
 {
     runWasmFile("startup.wasm");
+    ESP_LOGI(LOG_TAG, "Exiting...");
 }
