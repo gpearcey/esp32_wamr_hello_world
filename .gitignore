@@ -1,0 +1,7 @@
+build/
+*/build/
+sdkconfig
+sdkconfig*
+wasm-project/target/
+*/target/
+*.wasm.h
