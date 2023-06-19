@@ -26,7 +26,7 @@ if [[ -z "${WAMR_PATH}" ]]; then
         export WAMR_PATH=$PWD/../../..
 fi
 
-rm -rf build
+#rm -rf build
 idf.py set-target $TARGET
 idf.py build
 idf.py flash
