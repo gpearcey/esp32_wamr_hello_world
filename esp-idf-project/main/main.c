@@ -41,6 +41,8 @@ iwasm_main(void *arg)
     unsigned wasm_file_buf_size = 0;
     wasm_module_t wasm_module = NULL;
     wasm_module_inst_t wasm_module_inst = NULL;
+    wasm_exec_env_t exec_env = NULL;
+    wasm_function_inst_t func = NULL;
     char error_buf[128];
     void *ret;
     RuntimeInitArgs init_args;
@@ -104,6 +106,7 @@ iwasm_main(void *arg)
     ret = app_instance_main(wasm_module_inst);
     assert(!ret);
 
+    
     /* destroy the module instance */
     ESP_LOGI(LOG_TAG, "Deinstantiate WASM runtime");
     wasm_runtime_deinstantiate(wasm_module_inst);
