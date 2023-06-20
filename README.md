@@ -22,6 +22,17 @@ You will also need the following to compile rust to .wasm files:
 
 You can find out how to set up WAMR from their [documentation](https://wamr.gitbook.io/document/basics/getting-started).
 
+You may need to move the following files up a directory so they can be included:
+
+`bh_read_file.h`
+
+`bh_getopt.h`
+
+To move the files, navigate to wasm-micro-runtime/ and run
+
+`$ mv wasm-micro-runtime/core/shared/utils/uncommon/bh_getopt.* wasm-micro-runtime/core/shared/utils/uncommon/bh_read_file.* ../`
+
+
 ## Instructions
 
 Add this line with your path to wamr to your .bashrc to set your WAMR_PATH variable
