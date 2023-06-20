@@ -14,8 +14,8 @@ RUSTFLAGS="-C link-arg=--strip-all -C link-arg=-zstack-size=8192 -C link-arg=--e
 
 cd target/wasm32-wasi/release
 
-xxd -i wasm_project.wasm > wasm_project.wasm.h
+xxd -i wasm_project.wasm > test_wasm_rs.h
 
-mv wasm_project.wasm.h ../../../../esp-idf-project/main/
+mv test_wasm_rs.h ../../../../esp-idf-project/main/
 
 
