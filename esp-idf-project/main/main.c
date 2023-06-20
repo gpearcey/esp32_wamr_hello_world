@@ -14,15 +14,15 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
-#define LOG_TAG "wamr"
 
-int printHi(wasm_exec_env_t exec_env,int32_t number ){
-    printf("Hi %ld \n", number);
+#define LOG_TAG "wamr_hello_world"
+
+int printHello(wasm_exec_env_t exec_env,int32_t number ){
+    printf("Hello World #%ld \n", number);
     return 0;
 }
 
-static void *
-app_instance_main(wasm_module_inst_t module_inst)
+static void * app_instance_main(wasm_module_inst_t module_inst)
 {
     const char *exception;
 
@@ -32,8 +32,7 @@ app_instance_main(wasm_module_inst_t module_inst)
     return NULL;
 }
 
-void *
-iwasm_main(void *arg)
+void * iwasm_main(void *arg)
 {
     (void)arg; /* unused */
     /* setup variables for instantiating and running the wasm module */
@@ -41,8 +40,6 @@ iwasm_main(void *arg)
     unsigned wasm_file_buf_size = 0;
     wasm_module_t wasm_module = NULL;
     wasm_module_inst_t wasm_module_inst = NULL;
-    wasm_exec_env_t exec_env = NULL;
-    wasm_function_inst_t func = NULL;
     char error_buf[128];
     void *ret;
     RuntimeInitArgs init_args;
@@ -52,8 +49,8 @@ iwasm_main(void *arg)
 
     static NativeSymbol native_symbols[] = {
         {
-            "printHi", // the name of WASM function name
-            printHi,   // the native function pointer
+            "printHello", // the name of WASM function name
+            printHello,   // the native function pointer
             "(i)i",  // the function prototype signature, avoid to use i32
             NULL        // attachment is NULL
         }
@@ -124,8 +121,7 @@ fail2interp:
     return NULL;
 }
 
-void
-app_main(void)
+void app_main(void)
 {
     pthread_t t;
     int res;
