@@ -16,8 +16,8 @@
 #include "esp_log.h"
 #define LOG_TAG "wamr"
 
-int printHi(wasm_exec_env_t exec_env){
-    printf("Hi");
+int printHi(wasm_exec_env_t exec_env,int32_t number ){
+    printf("Hi %ld \n", number);
     return 0;
 }
 
@@ -52,7 +52,7 @@ iwasm_main(void *arg)
         {
             "printHi", // the name of WASM function name
             printHi,   // the native function pointer
-            "()i",  // the function prototype signature, avoid to use i32
+            "(i)i",  // the function prototype signature, avoid to use i32
             NULL        // attachment is NULL
         }
     };
