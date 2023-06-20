@@ -7,7 +7,7 @@
 #include "bh_read_file.h"
 #include "bh_getopt.h"
 #include "bh_platform.h"
-#include "test_wasm.h"
+#include "test_wasm_rs.h"
 #include <stdio.h>
 #include <inttypes.h>
 #include "sdkconfig.h"
